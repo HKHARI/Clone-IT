@@ -1,0 +1,12 @@
+logs/
+__pycache__/
+*.pyc
+.env
+node_modules/
+package.json
+package-lock.json
+.venv/
+venv/
+build/
+dist/
+*.spec

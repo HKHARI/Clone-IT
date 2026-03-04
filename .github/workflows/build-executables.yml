@@ -1,0 +1,93 @@
+name: Build Clone-IT Executables
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0)'
+        required: false
+        default: 'latest'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: Clone-IT-linux
+            binary_name: Clone-IT
+          - os: windows-latest
+            artifact_name: Clone-IT-windows
+            binary_name: Clone-IT.exe
+          - os: macos-latest
+            artifact_name: Clone-IT-macos
+            binary_name: Clone-IT
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ui.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller \
+            --onefile \
+            --name "${{ matrix.binary_name }}" \
+            --collect-all nicegui \
+            --hidden-import nicegui \
+            --hidden-import src \
+            --hidden-import src.modules \
+            --hidden-import src.modules.logger \
+            --hidden-import src.modules.auth \
+            --hidden-import src.modules.migration \
+            --hidden-import src.modules.template_migration \
+            --hidden-import src.modules.udf_migration \
+            --hidden-import src.config \
+            --hidden-import src.config.constants \
+            --hidden-import src.config.template_config \
+            --hidden-import src.config.udf_config \
+            --hidden-import src.services \
+            --hidden-import src.services.auth_service \
+            --hidden-import src.services.migration_service \
+            --hidden-import src.services.template_service \
+            --hidden-import src.services.udf_service \
+            --hidden-import src.utils \
+            --hidden-import src.utils.http_client \
+            --hidden-import src.utils.prompts \
+            app.py
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.binary_name }}
+          retention-days: 30
+
+  combine:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-executables
+
+      - name: Upload combined release
+        uses: actions/upload-artifact@v4
+        with:
+          name: Clone-IT-all-platforms
+          path: all-executables/
+          retention-days: 30

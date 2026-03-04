@@ -1,0 +1,455 @@
+templateID = "9119000003009017";
+SOURCE_INSTANCE_URL = "https://zoho420.sdpondemand.localmanageengine.com/app/problem_gokul";
+/************* User Configuration Ends & Automation Begins *************/
+entityNameSingular = "request";
+entityNamePlural = "requests";
+templeteEntityName = "request_template";
+templeteEntityNamePlural = "request_templates";
+udfFieldHolder = "udf_fields";
+skipUDFCreation = false;
+skipTemplateCreation = true;
+skipUdfBeginsKey = false;
+//field_name Vs value Object
+manualDefaultValues = Map();
+/******************** Internal Configuration Ends **********************/
+global_skip_keys = {"id","attachment","attachments"};
+//UDF Field Creation Based Keys
+allowedConstraintKeys = {"constraint_name","constraint_value"};
+skipConstraintNames = {"criteria","regex","digits","unique_collection","picklist","lower_case","editable","collection"};
+skipUdfDetKeys = {"type"};
+skipNullValueForUdfDetFields = {"sub_module"};
+//Template Layout Based Keys
+skipLayoutKeys = List();
+//Template Section Based Keys
+skipSectionKeys = List();
+//Template Fields Based Keys
+skipFieldKeys = {"template_id"};
+//Template Based Keys
+allowedTemplateKeys = {"name","comments","reference_templates","show_to_requester","task_configuration","is_service_template","service_category","is_cost_enabled","image","cost_details"};
+/******************* Skip and Allowed Keys for Copy Ends ******************/
+udfFieldTypeConfig = {"Single Line":{"prefix":"txt_","width":"12"},"Multi Line":{"prefix":"txt_","width":"12"},"Numeric Field":{"prefix":"num_","width":"15"},"Pick List":{"prefix":"txt_","width":"12"},"Multi Select":{"prefix":"txt_","width":"12"},"Date/Time Field":{"prefix":"date_","width":"15"},"Datestamp":{"prefix":"dt_","width":"12"},"ADD":{"prefix":"add_","width":"14"},"SUBSTRACT":{"prefix":"sub_","width":"14"},"Boolean":{"prefix":"bool_","width":"17"},"Email":{"prefix":"txt_","width":"12"},"Multi Email":{"prefix":"txt_","width":"12"},"Phone":{"prefix":"txt_","width":"12"},"Currency":{"prefix":"dbl_","width":"12"},"Decimal":{"prefix":"dbl_","width":"12"},"Percent":{"prefix":"dbl_","width":"12"},"Url":{"prefix":"txt_","width":"12"},"Auto Number Field":{"prefix":"txt_","width":"12"},"Reference Entity":{"prefix":"ref_","width":"12"},"Multi Select Reference Entity":{"prefix":"mref_","width":"12"},"Check Box":{"prefix":"txt_","width":"12"},"Radio Button":{"prefix":"txt_","width":"12"},"Decision Box":{"prefix":"bool_","width":"17"},"IP Address":{"prefix":"txt_","width":"12"},"attachment":{"prefix":"att_","width":"12"}};
+udfFieldKeyRegix = "^[a-z]|[0-9]|[A-Z]$";
+/****************** UDF Field Key Config **********************/
+// get target metainfo
+targetMetaInfoGet = zoho.sdp.invokeurl
+[
+	url :"/app/" + context.get("instance") + "/api/v3/" + entityNamePlural + "/_metainfo"
+	type :GET
+];
+// load target instance metainfo udf fields in map -> DisplayName Vs UDF_Key
+target_udf_dis_key_map = Map();
+targetMetaUdfFields = targetMetaInfoGet.get("metainfo").get("fields").get(udfFieldHolder);
+if(targetMetaUdfFields != null && targetMetaUdfFields.get("fields") != null)
+{
+	targetMetaUdfFields = targetMetaUdfFields.get("fields");
+	if(!targetMetaUdfFields.isEmpty())
+	{
+		udfFieldKeys = targetMetaUdfFields.keys();
+		for each  udfKey in udfFieldKeys
+		{
+			udfObj = targetMetaUdfFields.get(udfKey);
+			target_udf_dis_key_map.put(udfObj.get("display_name"),udfKey);
+		}
+	}
+}
+// get source metainfo
+sourceMetaInfoGet = invokeurl
+[
+	url :SOURCE_INSTANCE_URL + "/api/v3/" + entityNamePlural + "/_metainfo"
+	type :GET
+	connection:"sdp_connection"
+];
+//tempArr=List();
+// load source instance udf key name Vs target instance udf key name
+source_target_udf_key_map = Map();
+sourceMetaUdfFields = sourceMetaInfoGet.get("metainfo").get("fields").get(udfFieldHolder);
+if(!skipUDFCreation && sourceMetaUdfFields != null && sourceMetaUdfFields.get("fields") != null)
+{
+	sourceMetaUdfFields = sourceMetaUdfFields.get("fields");
+	if(!sourceMetaUdfFields.isEmpty())
+	{
+		udfFieldKeys = sourceMetaUdfFields.keys();
+		for each  srcUdfKey in udfFieldKeys
+		{
+			srcUdfObj = sourceMetaUdfFields.get(srcUdfKey);
+			displayName = srcUdfObj.get("display_name");
+			if(target_udf_dis_key_map.containKey(displayName))
+			{
+				source_target_udf_key_map.put(srcUdfKey,target_udf_dis_key_map.get(displayName));
+				continue;
+			}
+			// target instance not have the field. So need to create field in target instance with source instance config
+			//Get UDF details from source instance
+			udfFieldDetailsGet = invokeurl
+			[
+				url :SOURCE_INSTANCE_URL + "/api/v3/udf_fields/" + srcUdfObj.get("id")
+				type :GET
+				connection:"sdp_connection"
+			];
+			srcUdfFieldDetails = udfFieldDetailsGet.get("udf_field");
+			if(srcUdfFieldDetails == null)
+			{
+				info "Unable to get source instance udf field details";
+				return;
+			}
+			if(skipUdfBeginsKey && srcUdfKey.startsWith("udf_"))
+			{
+				continue;
+			}
+			new_udf_conf = Map();
+			/**********************************************************************************/
+			if(srcUdfKey.startsWith("udf_"))
+			{
+				srcFieldType = srcUdfFieldDetails.get("field_type");
+				fieldKeyConfig = udfFieldTypeConfig.get(srcFieldType);
+				if(fieldKeyConfig == null)
+				{
+					info "UDF Field key configuration not found";
+					return;
+				}
+				oldFieldKeyCharArr = srcUdfFieldDetails.get("name").toLowerCase().toList("");
+				newFieldKey = fieldKeyConfig.get("prefix");
+				hasUnderscore = true;
+				for each  keyChar in oldFieldKeyCharArr
+				{
+					if(keyChar.matches(udfFieldKeyRegix))
+					{
+						newFieldKey = newFieldKey + keyChar;
+						hasUnderscore = false;
+					}
+					else if(!hasUnderscore)
+					{
+						newFieldKey = newFieldKey + "_";
+						hasUnderscore = true;
+					}
+				}
+				if(newFieldKey.subString(newFieldKey.len() - 1) == "_")
+				{
+					newFieldKey = newFieldKey.subString(0,newFieldKey.len() - 1);
+				}
+				srcUdfFieldDetails.put("field_key",newFieldKey);
+				info "UDF Field Key Updated From : " + srcUdfKey + " -> " + newFieldKey;
+			}
+			/*********************************************************************************/
+			//Set Constraints
+			if(srcUdfFieldDetails.get("constraints") != null)
+			{
+				srcConstraints = srcUdfFieldDetails.get("constraints").toList();
+				trgtConstraints = List();
+				//allowedConstraintNames = {"unique","min_length","max_length","readonly","nullable","allowed_days","num_range","decimal","prefix","suffix","starting_num"};
+				maxContraints = null;
+				minContraints = null;
+				for each  constObj in srcConstraints
+				{
+					//skip criteria due it may contains IDs
+					constraintName = constObj.get("constraint_name");
+					if(skipConstraintNames.contains(constraintName) || global_skip_keys.contains(constraintName))
+					{
+						continue;
+					}
+					newConstObj = Map();
+					for each  constKey in allowedConstraintKeys
+					{
+						newConstObj.put(constKey,constObj.get(constKey));
+					}
+					if(constraintName == "min_length")
+					{
+						minContraints = newConstObj;
+					}
+					else if(constraintName == "max_length")
+					{
+						maxContraints = newConstObj;
+					}
+					else
+					{
+						trgtConstraints.add(newConstObj);
+					}
+				}
+				if(maxContraints != null && minContraints != null)
+				{
+					trgtConstraints.add(minContraints);
+					trgtConstraints.add(maxContraints);
+				}
+				new_udf_conf.put("constraints",trgtConstraints);
+			}
+			//Set Allowed values
+			if(srcUdfFieldDetails.get("allowed_values") != null)
+			{
+				new_allowed_values = List();
+				src_allowed_values = srcUdfFieldDetails.get("allowed_values").toList();
+				for each  valueObj in src_allowed_values
+				{
+					new_allowed_values.add({"value":valueObj.get("value")});
+				}
+				new_udf_conf.put("allowed_values",new_allowed_values);
+			}
+			//Set constant keys
+			udfDetKeys = srcUdfFieldDetails.keys();
+			for each  udfKey in udfDetKeys
+			{
+				if(global_skip_keys.contains(udfKey) || skipUdfDetKeys.contains(udfKey) || new_udf_conf.containKey(udfKey))
+				{
+					continue;
+				}
+				udfFieldObj = srcUdfFieldDetails.get(udfKey);
+				if(udfFieldObj == null || udfFieldObj.isText())
+				{
+					if(udfFieldObj != null || !skipNullValueForUdfDetFields.contains(udfKey))
+					{
+						new_udf_conf.put(udfKey,udfFieldObj);
+					}
+				}
+				else
+				{
+					try 
+					{
+						checkKeys = {"internal_name","name"};
+						for each  constKey in checkKeys
+						{
+							if(udfFieldObj.get(constKey) != null)
+							{
+								new_udf_conf.put(udfKey,{constKey:udfFieldObj.get(constKey)});
+								break;
+							}
+						}
+					}
+					catch (ex)
+					{
+						new_udf_conf.put(udfKey,udfFieldObj);
+					}
+				}
+			}
+			/*	info "@@***********************************************@@";
+			info new_udf_conf;
+			info "@@***********************************************@@";  */
+			//tempArr.add(new_udf_conf);
+			//Add udf field to target instance
+			udfFieldPost = zoho.sdp.invokeurl
+			[
+				url :"/app/" + context.get("instance") + "/api/v3/udf_fields"
+				type :POST
+				parameters:{"input_data":{"udf_field":new_udf_conf}}
+			];
+			if(udfFieldPost.get("udf_field") != null)
+			{
+				newUdfFieldObj = udfFieldPost.get("udf_field");
+				source_target_udf_key_map.put(srcUdfKey,newUdfFieldObj.get("field_key"));
+				info "UDF Field Creation Success -> " + newUdfFieldObj.get("field_key");
+			}
+			else
+			{
+				info "UDF Field Creation Failed -> " + udfFieldPost;
+				return;
+			}
+		}
+	}
+}
+/********************* UDF SYNC Completed  *************************/
+//info tempArr;
+info "**************** UDF Key Mapping *********************";
+info source_target_udf_key_map;
+info "**************************************************";
+if(skipTemplateCreation)
+{
+	info "Template Creation Aborted";
+	return;
+}
+//Get source instance template
+srcTemplateGet = invokeurl
+[
+	url :SOURCE_INSTANCE_URL + "/api/v3/" + templeteEntityNamePlural + "/" + templateID + "/_get_template_with_layout"
+	type :GET
+	connection:"sdp_connection"
+];
+srcTemplateJson = srcTemplateGet.get(templeteEntityName);
+if(srcTemplateJson == null)
+{
+	info "Invalid Template given.";
+	return;
+}
+//Get source template layout
+srcTemplateLayout = invokeurl
+[
+	url :SOURCE_INSTANCE_URL + "/api/v3/" + templeteEntityNamePlural + "/" + templateID + "/layouts"
+	type :GET
+	connection:"sdp_connection"
+];
+srcTemplateLayout = srcTemplateLayout.get("layouts").toList();
+trgTemplateJson = Map();
+trgTemplateLayout = List();
+for each  srclayout in srcTemplateLayout
+{
+	trgLayout = Map();
+	tempSkipLayoutKeys = {"sections"};
+	for each  layoutKey in srclayout.keys()
+	{
+		if(global_skip_keys.contains(layoutKey) || skipLayoutKeys.contains(layoutKey) || tempSkipLayoutKeys.contains(layoutKey) || trgLayout.containKey(layoutKey))
+		{
+			continue;
+		}
+		layoutFieldObj = srclayout.get(layoutKey);
+		if(layoutKey == "help_text" && layoutFieldObj != null)
+		{
+			newHelpTextArr = List();
+			for each  helpTextObj in layoutFieldObj
+			{
+				newHelpTextObj = Map();
+				for each  textKey in helpTextObj.keys()
+				{
+					if(!global_skip_keys.contains(textKey))
+					{
+						newHelpTextObj.put(textKey,helpTextObj.get(textKey));
+					}
+				}
+				newHelpTextArr.add(newHelpTextObj);
+			}
+			layoutFieldObj = newHelpTextArr;
+		}
+		trgLayout.put(layoutKey,layoutFieldObj);
+	}
+	trgTemplateSections = List();
+	srcTemplateSections = srclayout.get("sections").toList();
+	for each  srcSection in srcTemplateSections
+	{
+		trgSection = Map();
+		tempSkipSectionKeys = {"fields"};
+		for each  keyName in srcSection.keys()
+		{
+			if(global_skip_keys.contains(keyName) || skipSectionKeys.contains(keyName) || tempSkipSectionKeys.contains(keyName) || trgSection.containKey(keyName))
+			{
+				continue;
+			}
+			sectionFieldObj = srcSection.get(keyName);
+			trgSection.put(keyName,sectionFieldObj);
+		}
+		srcFieldList = srcSection.get("fields");
+		trgFieldList = List();
+		for each  srcfield in srcFieldList
+		{
+			fieldName = srcfield.get("name").toString();
+			if(fieldName.startsWith(udfFieldHolder))
+			{
+				splitIdx = fieldName.indexOf(".");
+				leftName = fieldName.subString(0,splitIdx);
+				rightname = fieldName.subString(splitIdx + 1,fieldName.length());
+				if(source_target_udf_key_map.containKey(rightname))
+				{
+					fieldName = leftName + "." + source_target_udf_key_map.get(rightname);
+				}
+				else
+				{
+					info "UDF Field Not found -> " + fieldName;
+					return;
+				}
+			}
+			trgField = Map();
+			trgField.put("name",fieldName);
+			if(manualDefaultValues.containKey(fieldName))
+			{
+				trgField.put("default_value",manualDefaultValues.get(fieldName));
+			}
+			else if(srcfield.get("default_value") != null)
+			{
+				defValueArr = List();
+				srcDefValueArr = srcfield.get("default_value");
+				for each  defValue in srcDefValueArr
+				{
+					if(defValue == null)
+					{
+						defValueArr.add(defValue);
+						continue;
+					}
+					else if(defValue.get("value") == null)
+					{
+						defValueArr.add({"value":null});
+						continue;
+					}
+					valueObj = defValue.get("value");
+					if(valueObj.isText() || valueObj.isNumber())
+					{
+						defValueArr.add({"value":valueObj});
+					}
+					else
+					{
+						try 
+						{
+							checkKeys = {"email_id","internal_name","name","value"};
+							for each  constKey in checkKeys
+							{
+								if(valueObj.get(constKey) != null)
+								{
+									defValueArr.add({"value":{constKey:valueObj.get(constKey)}});
+									break;
+								}
+							}
+						}
+						catch (ex)
+						{
+							defValueArr.add({"value":valueObj});
+						}
+					}
+				}
+				trgField.put("default_value",defValueArr);
+			}
+			if(srcfield.get("scopings") != null)
+			{
+				trgScopings = List();
+				srcScopings = srcfield.get("scopings");
+				for each  srcScopeObj in srcScopings
+				{
+					trgScopeObj = Map();
+					for each  scopeKey in srcScopeObj.keys()
+					{
+						if(!global_skip_keys.contains(scopeKey))
+						{
+							trgScopeObj.put(scopeKey,srcScopeObj.get(scopeKey));
+						}
+					}
+					trgScopings.add(trgScopeObj);
+				}
+				trgField.put("scopings",trgScopings);
+			}
+			for each  fieldKey in srcfield.keys()
+			{
+				if(global_skip_keys.contains(fieldKey) || skipFieldKeys.contains(fieldKey) || trgField.containKey(fieldKey))
+				{
+					continue;
+				}
+				trgField.put(fieldKey,srcfield.get(fieldKey));
+			}
+			trgFieldList.add(trgField);
+		}
+		trgSection.put("fields",trgFieldList);
+		trgTemplateSections.add(trgSection);
+	}
+	trgLayout.put("sections",trgTemplateSections);
+	trgTemplateLayout.add(trgLayout);
+}
+for each  templateKey in allowedTemplateKeys
+{
+	if(srcTemplateJson.containKey(templateKey))
+	{
+		templateDataObj = srcTemplateJson.get(templateKey);
+		if(templateKey == "service_category" && templateDataObj != null)
+		{
+			templateDataObj = {"name":templateDataObj.get("name")};
+		}
+		trgTemplateJson.put(templateKey,templateDataObj);
+	}
+}
+trgTemplateJson.put("layouts",trgTemplateLayout);
+//Post New Template In source Instnce
+if(1 != 2)
+{
+	info {templeteEntityName:trgTemplateJson};
+	info "********************************************************";
+	//return;
+}
+PostTemplate = zoho.sdp.invokeurl
+[
+	url :"/app/" + context.get("instance") + "/api/v3/" + templeteEntityNamePlural
+	type :POST
+	parameters:{"input_data":{templeteEntityName:trgTemplateJson}}
+];
+//info PostTemplate.get(templeteEntityName);
+info PostTemplate;
