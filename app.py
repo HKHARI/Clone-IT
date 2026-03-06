@@ -3,11 +3,35 @@
 Launch with:  python app.py   or   ./run_ui.sh
 """
 
+import sys
+import time
+
+# ---------------------------------------------------------------------------
+# Terminal startup progress (shown while modules load)
+# ---------------------------------------------------------------------------
+
+def _print_progress(step, total, label):
+    """Print a terminal progress bar during startup."""
+    pct = int((step / total) * 100)
+    bar_len = 30
+    filled = int(bar_len * step / total)
+    bar = "█" * filled + "░" * (bar_len - filled)
+    sys.stdout.write(f"\r  ⏳ Loading [{bar}] {pct}%  {label}")
+    sys.stdout.flush()
+
+_TOTAL_STEPS = 5
+_print_progress(1, _TOTAL_STEPS, "Core libraries...")
+
 import asyncio
 from nicegui import ui, app
 
+_print_progress(2, _TOTAL_STEPS, "Logger & config...")
+
 from src.modules.logger import logger
 from src.config.constants import ZOHO_ACCOUNTS_URLS, SUPPORTED_MIGRATIONS
+
+_print_progress(3, _TOTAL_STEPS, "Auth services...")
+
 from src.services.auth_service import (
     create_token_store,
     authenticate_token_store,
@@ -15,6 +39,9 @@ from src.services.auth_service import (
     validate_connection,
     revoke_tokens,
 )
+
+_print_progress(4, _TOTAL_STEPS, "Migration services...")
+
 from src.services.migration_service import (
     get_migration_choices,
     get_module_choices,
@@ -25,6 +52,10 @@ from src.services.migration_service import (
     run_migration,
 )
 from src.services.template_service import resolve_by_ids
+
+_print_progress(5, _TOTAL_STEPS, "Ready!")
+sys.stdout.write("\n")  # newline after progress bar
+print("  🚀 Starting SDP Migration Wizard...\n")
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +119,9 @@ def main_page():
 
     # --- Theme ---
     ui.dark_mode().enable()
+
+    # --- Loading splash (auto-hides when page is ready) ---
+    ui.add_body_html(LOADING_OVERLAY_CSS_JS)
 
     # --- Header ---
     with ui.header().classes("items-center justify-between q-pa-sm"):
@@ -702,8 +736,6 @@ def main_page():
                     finally:
                         progress.set_value(1.0)
                         logger.clear_ui_callback()
-                        revoke_tokens(state.source_client, state.target_client)
-                        logger.close()
                         # Show "Run Another" and "Exit" buttons
                         run_another_btn.set_visibility(True)
                         exit_btn.set_visibility(True)
@@ -723,6 +755,8 @@ def main_page():
                 async def exit_wizard():
                     """Shut down the app gracefully."""
                     ui.notify("Goodbye!", type="info")
+                    revoke_tokens(state.source_client, state.target_client)
+                    logger.close()
                     await asyncio.sleep(0.5)
                     app.shutdown()
 
@@ -787,7 +821,104 @@ def _build_item_checkboxes(container, state, items, key_field, label_fn):
 
 
 # ---------------------------------------------------------------------------
+# Custom loading overlay (shown in browser while NiceGUI initializes)
+# ---------------------------------------------------------------------------
+
+LOADING_OVERLAY_CSS_JS = """
+<style>
+  #clone-it-splash {
+    position: fixed; inset: 0; z-index: 99999;
+    background: #1a1a2e;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: #e0e0e0;
+    transition: opacity 0.5s ease;
+  }
+  #clone-it-splash.hidden { opacity: 0; pointer-events: none; }
+  .splash-inner { text-align: center; animation: splashFadeIn 0.5s ease-out; }
+  @keyframes splashFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .splash-logo {
+    font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .splash-sub { color: #888; font-size: 0.9rem; margin-bottom: 2rem; }
+  .splash-spinner {
+    width: 56px; height: 56px; margin: 0 auto 1.5rem;
+    border: 4px solid rgba(102,126,234,0.15);
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    animation: splashSpin 1s linear infinite;
+  }
+  @keyframes splashSpin { to { transform: rotate(360deg); } }
+  .splash-bar-bg {
+    width: 280px; height: 6px; margin: 0 auto 0.75rem;
+    background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;
+  }
+  .splash-bar-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    width: 0%; animation: splashLoad 4s ease-in-out forwards;
+  }
+  @keyframes splashLoad {
+    0%   { width: 0%; }
+    30%  { width: 40%; }
+    60%  { width: 70%; }
+    80%  { width: 85%; }
+    100% { width: 95%; }
+  }
+  .splash-pct {
+    font-size: 0.85rem; color: #667eea;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+<div id="clone-it-splash">
+  <div class="splash-inner">
+    <div class="splash-logo">Clone-IT</div>
+    <div class="splash-sub">SDP Migration Wizard</div>
+    <div class="splash-spinner"></div>
+    <div class="splash-bar-bg"><div class="splash-bar-fill" id="splashBar"></div></div>
+    <div class="splash-pct" id="splashPct">0%</div>
+  </div>
+</div>
+<script>
+  (function() {
+    var bar = document.getElementById('splashBar');
+    var pct = document.getElementById('splashPct');
+    var iv = setInterval(function() {
+      var w = parseFloat(getComputedStyle(bar).width);
+      var pw = parseFloat(getComputedStyle(bar.parentElement).width);
+      var v = Math.round((w / pw) * 100) || 0;
+      pct.textContent = v + '%';
+      if (v >= 95) clearInterval(iv);
+    }, 100);
+    // Hide splash once NiceGUI's Vue app mounts (page is interactive)
+    var check = setInterval(function() {
+      if (document.querySelector('.nicegui-content') || document.querySelector('.q-page')) {
+        pct.textContent = '100%';
+        var splash = document.getElementById('clone-it-splash');
+        if (splash) {
+          splash.classList.add('hidden');
+          setTimeout(function() { splash.remove(); }, 600);
+        }
+        clearInterval(check);
+        clearInterval(iv);
+      }
+    }, 200);
+  })();
+</script>
+"""
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
-ui.run(title="SDP Migration Wizard", port=8080, reload=False)
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()  # Required for PyInstaller executables
+    ui.run(title="SDP Migration Wizard", port=8080, reload=False)
+
